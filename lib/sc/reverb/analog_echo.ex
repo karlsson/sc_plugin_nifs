@@ -57,17 +57,20 @@ defmodule SC.Reverb.AnalogEcho do
   end
 
 
-  @spec new(rate :: pos_integer(), period_size :: pos_integer(), maxdelay :: float) :: t
-  def new(rate, period_size, maxdelay \\ 0.3) do
+  @spec new(maxdelay :: float) :: t
+  def new(maxdelay \\ 0.3) do
+    %SC.Ctx{rate: rate, period_size: period_size} = SC.Ctx.get()
     %__MODULE__{ref: analog_echo_ctor(rate, period_size, maxdelay), maxdelay: maxdelay, delay: maxdelay}
   end
+
+  def ns(enum, maxdelay \\ 0.3), do: stream(new(maxdelay), enum)
 
   @spec next(t(), frames :: binary()) :: binary()
   def next(%__MODULE__{ref: ref, delay: delay, fb: fb, coeff: coeff}, frames) do
     analog_echo_next(ref, frames, delay, fb, coeff)
   end
 
-  @spec stream(t(), enum :: Enumerable.t()) :: binary()
+  @spec stream(t(), enum :: Enumerable.t()) :: Enumerable.t()
   def stream(analog_echo, enum) do
     # When upstream halted - emit echo for 500 * 6 ms ~ 3 s
     enum2 =

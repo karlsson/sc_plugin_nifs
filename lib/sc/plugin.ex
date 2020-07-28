@@ -12,7 +12,7 @@ defmodule SC.Plugin do
 
   **Include from github.**
   - In your applications mix.exs, in deps part, include
-  {:sc_plugin_nif, git: "https://github.com/karlsson/sc_plugin_nif.git"}}
+  {:sc_plugin_nifs, git: "https://github.com/karlsson/sc_plugin_nifs.git"}}
   - mix deps.get
   - mix compile.
 
@@ -35,7 +35,13 @@ defmodule SC.Plugin do
     (plugin.__struct__).next(plugin, frames)
   end
 
+  def stream(plugin) when is_struct(plugin) do
+    ctx = SC.Ctx.get()
+    (plugin.__struct__).stream(plugin, ctx.period_size)
+  end
+
   def stream(enum, plugin) when is_struct(plugin) do
     (plugin.__struct__).stream(plugin, enum)
   end
+
 end

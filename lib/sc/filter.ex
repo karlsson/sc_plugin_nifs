@@ -40,6 +40,8 @@ defmodule SC.Filter do
       %__MODULE__{ref: SC.Filter.ramp_ctor(rate, period_size), lagTime: lagtime}
     end
 
+    def ns(enum, lagtime \\ 0.1), do: stream(new(lagtime), enum)
+
     def next(%__MODULE__{ref: ref, lagTime: lagtime}, frames) when is_float(lagtime) do
       SC.Filter.ramp_next(ref, frames, lagtime)
     end
@@ -63,6 +65,8 @@ defmodule SC.Filter do
       %SC.Ctx{rate: rate, period_size: period_size} = SC.Ctx.get()
       %__MODULE__{ref: SC.Filter.lag_ctor(rate, period_size), lagTime: lagtime}
     end
+
+    def ns(enum, lagtime \\ 0.1), do: stream(new(lagtime), enum)
 
     def next(%__MODULE__{ref: ref, lagTime: lagtime}, frames) when is_float(lagtime) do
       SC.Filter.lag_next(ref, frames, lagtime)
@@ -89,6 +93,8 @@ defmodule SC.Filter do
         %unquote(mod){ref: SC.Filter.lhpf_ctor(rate, period_size, unquote(type)),
                     frequency: frequency}
       end
+
+      def ns(enum, frequency \\ 440.0), do: stream(new(frequency), enum)
 
       def next(%unquote(mod){ref: ref, frequency: frequency}, frames) when is_number(frequency) do
         SC.Filter.lhpf_next(ref, frames, frequency * 1.0)
