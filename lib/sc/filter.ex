@@ -28,6 +28,8 @@ defmodule SC.Filter do
   @doc false
   def lhpf_next(_ref, _frames, _freq), do: raise "NIF lpf_next/3 not loaded"
 
+  @doc false
+  def lhpf_next(_ref, _frames, _freq, _bw), do: raise "NIF lpf_next/4 not loaded"
   # -----------------------------------------------------------
   # Break a continuous signal into linearly interpolated segments
   # with specific durations.
