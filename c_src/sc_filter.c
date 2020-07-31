@@ -604,6 +604,129 @@ static void BPF_next_1(LHPF* unit, double * out, double in, double * args) {
   unit->m_y2 = zapgremlins(y2);
 }
 
+static void BRF_next(LHPF* unit, float * out, float * in, double * args, int inNumSamples) {
+  double freq = args[0];
+  double bw = args[1];
+
+  double ay;
+  double y0;
+  double y1 = unit->m_y1;
+  double y2 = unit->m_y2;
+  double a0 = unit->m_a0;
+  double a1 = unit->m_a1;
+  double b2 = unit->m_b2;
+  int mFilterLoops, mFilterRemain;
+  if(unit->first) {
+    mFilterLoops = 0;
+    mFilterRemain = 1;
+  } else {
+    mFilterLoops = inNumSamples / 3;
+    mFilterRemain = inNumSamples % 3;
+  }
+
+  if (freq != unit->m_freq || bw != unit->m_bw) {
+    double mFilterSlope = (mFilterLoops == 0) ? 0. : 1. / mFilterLoops;
+    double pfreq = freq * radians_per_sample(unit->rate);
+    double pbw = bw * pfreq * 0.5;
+    double C = tan(pbw);
+    double D = 2. * cos(pfreq);
+
+    double next_a0 = 1. / (1. + C);
+    double next_a1 = -D * next_a0;
+    double next_b2 = (1. - C) * next_a0;
+
+    double a0_slope = (next_a0 - a0) * mFilterSlope;
+    double a1_slope = (next_a1 - a1) * mFilterSlope;
+    double b2_slope = (next_b2 - b2) * mFilterSlope;
+    for (int i = 0; i < mFilterLoops; i++) {
+      ay = a1 * y1; y0 = *in++ - ay - b2 * y2;
+      *out++ = a0 * (y0 + y2) + ay;
+
+      ay = a1 * y0; y2 = *in++ - ay - b2 * y1;
+      *out++ = a0 * (y2 + y1) + ay;
+
+      ay = a1 * y2; y1 = *in++ - ay - b2 * y0;
+      *out++ = a0 * (y1 + y0) + ay;
+
+      a0 += a0_slope; a1 += a1_slope; b2 += b2_slope;
+    }
+    for(int i = 0; i < mFilterRemain; i++){
+      ay = a1 * y1; y0 = *in++ - ay - b2 * y2;
+      *out++ = a0 * (y0 + y2) + ay;
+      y2 = y1;
+      y1 = y0;
+    }
+    unit->m_freq = freq;
+    unit->m_bw = bw;
+    unit->m_a0 = next_a0;
+    unit->m_a1 = next_a1;
+    unit->m_b2 = next_b2;
+  } else {
+    for (int i = 0; i < mFilterLoops; i++) {
+      ay = a1 * y1; y0 = *in++ - ay - b2 * y2;
+      *out++ = a0 * (y0 + y2) + ay;
+
+      ay = a1 * y0; y2 = *in++ - ay - b2 * y1;
+      *out++ = a0 * (y2 + y1) + ay;
+
+      ay = a1 * y2; y1 = *in++ - ay - b2 * y0;
+      *out++ = a0 * (y1 + y0) + ay;
+    }
+    for(int i = 0; i < mFilterRemain; i++){
+      ay = a1 * y1; y0 = *in++ - ay - b2 * y2;
+      *out++ = a0 * (y0 + y2) + ay;
+      y2 = y1;
+      y1 = y0;
+    }
+  }
+  unit->m_y1 = zapgremlins(y1);
+  unit->m_y2 = zapgremlins(y2);
+}
+
+static void BRF_next_1(LHPF* unit, double * out, double in, double * args) {
+  double freq = args[0];
+  double bw = args[1];
+
+  double ay;
+  double y0;
+  double y1 = unit->m_y1;
+  double y2 = unit->m_y2;
+  double a0 = unit->m_a0;
+  double a1 = unit->m_a1;
+  double b2 = unit->m_b2;
+
+  if (freq != unit->m_freq || bw != unit->m_bw) {
+    double pfreq = freq * radians_per_sample(unit->rate / unit->period_size);
+    double pbw = bw * pfreq * 0.5;
+    double C = tan(pbw);
+    double D = 2. * cos(pfreq);
+
+    double a0 = 1. / (1. + C);
+    double a1 = -D * a0;
+    double b2 = (1. - C) * a0;
+
+    ay = a1 * y1;
+    y0 = in - ay - b2 * y2;
+    *out = a0 * (y0 + y2) + ay;
+    y2 = y1;
+    y1 = y0;
+
+    unit->m_freq = freq;
+    unit->m_bw = bw;
+    unit->m_a0 = a0;
+    unit->m_a1 = a1;
+    unit->m_b2 = b2;
+  } else {
+    ay = a1 * y1;
+    y0 = in - ay - b2 * y2;
+    *out = a0 * (y0 + y2) + ay;
+    y2 = y1;
+    y1 = y0;
+  }
+  unit->m_y1 = zapgremlins(y1);
+  unit->m_y2 = zapgremlins(y2);
+}
+
 /* ---------------------------------------------------------- */
 
 static ERL_NIF_TERM lhpf_ctor(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
@@ -641,9 +764,9 @@ static ERL_NIF_TERM lhpf_ctor(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
   } else if (strcmp(type, "bpf") == 0) {
     unit->next = &BPF_next;
     unit->next_1 = &BPF_next_1;
-  /* } else if (strcmp(type, "brf") == 0) { */
-  /*   unit->next = &BRF_next; */
-  /*   unit->next_1 = &BRF_next_1; */
+  } else if (strcmp(type, "brf") == 0) {
+    unit->next = &BRF_next;
+    unit->next_1 = &BRF_next_1;
   } else {
     return enif_make_badarg(env);
   }

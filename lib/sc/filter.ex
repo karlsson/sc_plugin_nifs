@@ -49,9 +49,10 @@ defmodule SC.Filter do
     end
 
     def stream(m = %__MODULE__{lagTime: lagtime}, enum) when is_float(lagtime) do
-      Stream.map(enum, fn frames -> next(m, frames) end)
+      ls = Stream.unfold(lagtime, fn x -> {x,x} end)
+      stream(%{m | :lagTime => ls}, enum)
     end
-    def stream(%__MODULE__{ref: ref, lagTime: lagtime}, enum) when is_struct(lagtime) do
+    def stream(%__MODULE__{ref: ref, lagTime: lagtime}, enum) do
       Stream.zip(enum, lagtime)
       |> Stream.map(fn {frames, lagtimef} -> SC.Filter.ramp_next(ref, frames, lagtimef) end)
     end
@@ -75,9 +76,10 @@ defmodule SC.Filter do
     end
 
     def stream(m = %__MODULE__{lagTime: lagtime}, enum) when is_float(lagtime) do
-      Stream.map(enum, fn frames -> next(m, frames) end)
+      ls = Stream.unfold(lagtime, fn x -> {x,x} end)
+      stream(%{m | :lagTime => ls}, enum)
     end
-    def stream(%__MODULE__{ref: ref, lagTime: lagtime}, enum) when is_struct(lagtime) do
+    def stream(%__MODULE__{ref: ref, lagTime: lagtime}, enum) do
       Stream.zip(enum, lagtime)
       |> Stream.map(fn {frames, lagtimef} -> SC.Filter.lag_next(ref, frames, lagtimef) end)
     end
@@ -103,11 +105,63 @@ defmodule SC.Filter do
       end
 
       def stream(m = %unquote(mod){frequency: frequency}, enum) when is_number(frequency) do
-        Stream.map(enum, fn frames -> next(m, frames) end)
+        fs = Stream.unfold(frequency, fn x -> {x,x} end)
+        stream(%{m | :frequency => fs}, enum)
       end
-      def stream(%unquote(mod){ref: ref, frequency: frequency}, enum) when is_struct(frequency) do
+      def stream(%unquote(mod){ref: ref, frequency: frequency}, enum) do
         Stream.zip(enum, frequency)
         |> Stream.map(fn {frames, frequencyf} -> SC.Filter.lhpf_next(ref, frames, frequencyf * 1.0) end)
+      end
+    end
+  end
+
+  for {mod, type} <- [{SC.Filter.BPF, :bpf}, {SC.Filter.BRF, :brf}] do
+    defmodule mod do
+      @behaviour SC.Plugin
+      defstruct [:ref, frequency: 440.0, bwr: 1.0]
+      @type t() :: %__MODULE__{
+        ref: reference(),
+        frequency: float(),
+        bwr: float()
+      }
+
+      @typedoc """
+      Centre frequency in Hertz.
+      WARNING: due to the nature of its implementation frequency values
+      close to 0 may cause glitches and/or extremely loud audio artifacts!
+      """
+      @type frequency() :: float()
+
+      @typedoc """
+      Bandwidth ratio. The reciprocal of Q.
+      Q is conventionally defined as centerFreq / bandwidth,
+      meaning bwr = (bandwidth / centerFreq).
+      """
+      @type bwr() :: float()
+
+      def new(frequency \\ 440.0, bwr \\ 1.0 ) do
+        %SC.Ctx{rate: rate, period_size: period_size} = SC.Ctx.get()
+        %unquote(mod){ref: SC.Filter.lhpf_ctor(rate, period_size, unquote(type)),
+                    frequency: frequency, bwr: bwr}
+      end
+
+      def ns(enum, frequency \\ 440.0, bwr \\ 1.0), do: stream(new(frequency, bwr), enum)
+
+      def next(%unquote(mod){ref: ref, frequency: frequency, bwr: bwr}, frames) when is_number(frequency) do
+        SC.Filter.lhpf_next(ref, frames, frequency * 1.0, bwr)
+      end
+
+      def stream(m = %unquote(mod){frequency: frequency}, enum) when is_number(frequency) do
+        fs = Stream.unfold(frequency, fn x -> {x,x} end)
+        stream(%{m | :frequency => fs}, enum)
+      end
+      def stream(m = %unquote(mod){bwr: bwr}, enum) when is_number(bwr) do
+        bwrs = Stream.unfold(bwr, fn x -> {x,x} end)
+        stream(%{m | :bwr => bwrs}, enum)
+      end
+      def stream(%unquote(mod){ref: ref, frequency: frequency, bwr: bwr}, enum) do
+        Stream.zip([enum, frequency, bwr])
+        |> Stream.map(fn {frames, frequencyf, bwrf} -> SC.Filter.lhpf_next(ref, frames, frequencyf * 1.0, bwrf * 1.0) end)
       end
     end
   end
