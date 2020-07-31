@@ -243,6 +243,126 @@ static ERL_NIF_TERM lag_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
 }
 
 ////////////////////////////////////////////////////////////////////////////////////
+typedef struct LagUD {
+  double m_lagu, m_lagd;
+  double m_b1u, m_b1d, m_y1;
+  double rate, period_size;
+  int first;
+  void (*next)(struct LagUD *, float *, float *, double *, int);
+} LagUD;
+
+static void LagUD_next(LagUD* unit, float * out, float * in, double * args, int inNumSamples) {
+    double lagu = args[0];
+    double lagd = args[1];
+
+    double y1 = unit->m_y1;
+    double b1u = unit->m_b1u;
+    double b1d = unit->m_b1d;
+
+    if ((lagu == unit->m_lagu) && (lagd == unit->m_lagd)) {
+      for(int i = 0; i < inNumSamples; i++) {
+        double y0 = *in++;
+        if (y0 > y1)
+          *out++ = y1 = y0 + b1u * (y1 - y0);
+        else
+          *out++ = y1 = y0 + b1d * (y1 - y0);
+      }
+    } else {
+        unit->m_b1u = lagu == 0. ? 0. : exp(log001 / (lagu * unit->rate));
+        double b1u_slope = (unit->m_b1u - b1u) / unit->period_size;
+        unit->m_lagu = lagu;
+        unit->m_b1d = lagd == 0. ? 0. : exp(log001 / (lagd * unit->rate));
+        double b1d_slope = (unit->m_b1d - b1d) / unit->period_size;
+        unit->m_lagd = lagd;
+        for(int i = 0; i < inNumSamples; i++) {
+          b1u += b1u_slope;
+          b1d += b1d_slope;
+          double y0 = *in++;
+          if (y0 > y1)
+            *out++ = y1 = y0 + b1u * (y1 - y0);
+          else
+            *out++ = y1 = y0 + b1d * (y1 - y0);
+        }
+    }
+    unit->m_y1 = zapgremlins(y1);
+}
+
+static ERL_NIF_TERM lagud_ctor(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+  unsigned int rate, period_size;
+  if (!enif_get_uint(env, argv[0], &rate)){
+    return enif_make_badarg(env);
+  }
+  if (!enif_get_uint(env, argv[1], &period_size)){
+    return enif_make_badarg(env);
+  }
+  LagUD * unit = enif_alloc_resource(sc_filter_type, sizeof(LagUD));
+  unit->m_lagu = uninitializedControl;
+  unit->m_lagd = uninitializedControl;
+  unit->m_b1u = 0.;
+  unit->m_b1d = 0.;
+  unit->rate = rate;
+  unit->period_size = period_size;
+  unit->first = 1;
+  unit->m_y1 = uninitializedControl;
+  unit->next = &LagUD_next;
+ ERL_NIF_TERM term = enif_make_resource(env, unit);
+  enif_release_resource(unit);
+  return term;
+}
+static ERL_NIF_TERM lagud_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+  LagUD * unit;
+  ErlNifBinary in_bin;
+  double args[2];
+
+  if (!enif_get_resource(env, argv[0],
+                         sc_filter_type,
+                         (void**) &unit)){
+    return enif_raise_exception(env,
+                                enif_make_string(env,
+                                                 "No valid reference",
+                                                 ERL_NIF_LATIN1));
+  }
+
+  if(!enif_get_double(env, argv[2], &args[0])){
+    return enif_raise_exception(env,
+                                enif_make_string(env,
+                                                 "Lag UP not a float",
+                                                 ERL_NIF_LATIN1));
+  }
+
+  if(argc > 3) {
+    if(!enif_get_double(env, argv[3], &args[1])){
+      return enif_raise_exception(env,
+                                  enif_make_string(env,
+                                                   "Lag DOWN not a float",
+                                                   ERL_NIF_LATIN1));
+    }
+  }
+
+  if(enif_inspect_binary(env, argv[1], &in_bin)){
+    ERL_NIF_TERM out_term;
+    int inNumSamples = in_bin.size / sizeof(float);
+    float * in = (float *) in_bin.data;
+    float * out = (float *) enif_make_new_binary(env, in_bin.size, &out_term);
+    if(unit->first) {
+      float * indummy = in;
+      float * outdummy = out;
+      (*unit->next)(unit, outdummy, indummy, args, 1);
+      unit->first = 0;
+    }
+    (*unit->next)(unit, out, in, args, inNumSamples);
+    return out_term;
+  }else{
+    return enif_raise_exception(env,
+                                enif_make_string(env,
+                                                 "Not a binary",
+                                                 ERL_NIF_LATIN1));
+  }
+}
+
+/* ------------------------------------------------------------ */
 typedef struct LHPF {
   double m_freq, m_bw;
   double m_y1, m_y2, m_a0, m_a1, m_b1, m_b2;
@@ -842,6 +962,8 @@ static ErlNifFunc nif_funcs[] = {
   {"ramp_next", 3, ramp_next},
   {"lag_ctor", 2, lag_ctor},
   {"lag_next", 3, lag_next},
+  {"lagud_ctor", 2, lagud_ctor},
+  {"lagud_next", 4, lagud_next},
   {"lhpf_ctor", 3, lhpf_ctor},
   {"lhpf_next", 3, lhpf_next},
   {"lhpf_next", 4, lhpf_next}

@@ -24,6 +24,10 @@ defmodule SC.Filter do
   @doc false
   def lag_next(_ref, _frames, _lag), do: raise "NIF lag_next/3 not loaded"
 
+  def lagud_ctor(_rate, _period_size), do: raise "NIF lagud_ctor/2 not loaded"
+  @doc false
+  def lagud_next(_ref, _frames, _lagup, _lagdown), do: raise "NIF lagud_next/4 not loaded"
+
   def lhpf_ctor(_rate, _period_size, _type ), do: raise "NIF lpf_ctor/3 not loaded"
   @doc false
   def lhpf_next(_ref, _frames, _freq), do: raise "NIF lpf_next/3 not loaded"
@@ -82,6 +86,42 @@ defmodule SC.Filter do
     def stream(%__MODULE__{ref: ref, lagTime: lagtime}, enum) do
       Stream.zip(enum, lagtime)
       |> Stream.map(fn {frames, lagtimef} -> SC.Filter.lag_next(ref, frames, lagtimef) end)
+    end
+  end
+
+  # -----------------------------------------------------------
+
+  defmodule LagUD do
+    @behaviour SC.Plugin
+    defstruct [:ref, lagTimeU: 0.1, lagTimeD: 0.1]
+
+    def new(lagtime_u \\ 0.1, lagtime_d \\ 0.1) do
+      %SC.Ctx{rate: rate, period_size: period_size} = SC.Ctx.get()
+      %__MODULE__{ref: SC.Filter.lagud_ctor(rate, period_size),
+                  lagTimeU: lagtime_u, lagTimeD: lagtime_d}
+    end
+
+    def ns(enum, lu \\ 0.1, ld \\ 0.1), do: stream(new(lu, ld), enum)
+
+    def next(%__MODULE__{ref: ref, lagTimeU: lagtime_u, lagTimeD: lagtime_d}, frames)
+    when is_float(lagtime_u) and is_float(lagtime_d) do
+      SC.Filter.lagud_next(ref, frames, lagtime_u, lagtime_d)
+    end
+
+    def stream(m = %__MODULE__{lagTimeU: lagtime_u}, enum) when is_number(lagtime_u) do
+      ls = Stream.unfold(lagtime_u * 1.0, fn x -> {x,x} end)
+      stream(%{m | :lagTime => ls}, enum)
+    end
+    def stream(m = %__MODULE__{lagTimeD: lagtime_d}, enum) when is_number(lagtime_d) do
+      ls = Stream.unfold(lagtime_d * 1.0, fn x -> {x,x} end)
+      stream(%{m | :lagTime => ls}, enum)
+    end
+    def stream(%__MODULE__{ref: ref, lagTimeU: lagtime_u, lagTimeD: lagtime_d}, enum) do
+      Stream.zip([enum, lagtime_u, lagtime_d])
+      |> Stream.map(
+      fn {frames, lagtimeuf, lagtimedf} ->
+        SC.Filter.lagud_next(ref, frames, lagtimeuf, lagtimedf)
+      end)
     end
   end
 
