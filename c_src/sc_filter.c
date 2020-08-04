@@ -30,7 +30,6 @@ static ErlNifResourceType* sc_filter_type;
 // NaNs are not equal to any floating point number
 static const float uninitializedControl = NAN;
 
-// #define PI 3.1415926535898
 #define PI M_PI
 
 
@@ -110,7 +109,7 @@ static ERL_NIF_TERM ramp_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
       counter -= nsmps;
       remain -= nsmps;
       if (counter <= 0) {
-        counter = (int)(period * unit->rate / unit->period_size);
+        counter = (int)(period * unit->rate);
         counter = sc_max(1, counter);
         slope = (*in - level) / counter;
       }
@@ -122,11 +121,13 @@ static ERL_NIF_TERM ramp_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
   }else if(enif_get_double(env, argv[1], &in_scalar)){
     if(unit->first) {
       unit->m_level = in_scalar;
+      unit->rate = unit->rate / unit->period_size;
+      unit->period_size = 1;
       unit->first = 0;
     }
     double out = unit->m_level;
     if (--unit->m_counter <= 0) {
-      int counter = (int)(period * unit->rate / unit->period_size);
+      int counter = (int)(period * unit->rate);
       unit->m_counter = counter = sc_max(1, counter);
       unit->m_slope = (in_scalar - unit->m_level) / counter;
     }
@@ -203,6 +204,10 @@ static ERL_NIF_TERM lag_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
 
   if(unit->first){
     unit->m_y1 = is_bin?(*in):in_scalar;
+    if(!is_bin) {
+      unit->rate = unit->rate / unit->period_size;
+      unit->period_size = 1;
+    }
     unit->first = 0;
   }
 
@@ -217,7 +222,7 @@ static ERL_NIF_TERM lag_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
         *out++ = y1 = y0 + b1 * (y1 - y0);
       }
     } else {
-      unit->m_b1 = lag == 0.f ? 0.f : exp(unit->period_size * log001 / (lag * unit->rate));
+      unit->m_b1 = lag == 0.f ? 0.f : exp(log001 / (lag * unit->rate));
       double b1_slope = (unit->m_b1 - b1) / unit->period_size;
       unit->m_lag = lag;
       for(int i = 0; i < inNumSamples; i++){
@@ -231,7 +236,7 @@ static ERL_NIF_TERM lag_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
       y0 = in_scalar;
       out_scalar = y1 = y0 + b1 * (y1 - y0);
     } else {
-      unit->m_b1 = b1 = lag == 0.f ? 0.f : exp(unit->period_size * log001 / (lag * unit->rate));
+      unit->m_b1 = b1 = lag == 0.f ? 0.f : exp(log001 / (lag * unit->rate));
       unit->m_lag = lag;
       y0 = in_scalar;
       out_scalar = y1 = y0 + b1 * (y1 - y0);
@@ -306,7 +311,7 @@ static ERL_NIF_TERM lagud_ctor(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
   unit->first = 1;
   unit->m_y1 = uninitializedControl;
   unit->next = &LagUD_next;
- ERL_NIF_TERM term = enif_make_resource(env, unit);
+  ERL_NIF_TERM term = enif_make_resource(env, unit);
   enif_release_resource(unit);
   return term;
 }
@@ -314,6 +319,7 @@ static ERL_NIF_TERM lagud_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
 {
   LagUD * unit;
   ErlNifBinary in_bin;
+  double in_scalar;
   double args[2];
 
   if (!enif_get_resource(env, argv[0],
@@ -347,13 +353,22 @@ static ERL_NIF_TERM lagud_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
     float * in = (float *) in_bin.data;
     float * out = (float *) enif_make_new_binary(env, in_bin.size, &out_term);
     if(unit->first) {
-      float * indummy = in;
-      float * outdummy = out;
-      (*unit->next)(unit, outdummy, indummy, args, 1);
+      (*unit->next)(unit, out, in, args, 1);
       unit->first = 0;
     }
     (*unit->next)(unit, out, in, args, inNumSamples);
     return out_term;
+  }else if(enif_get_double(env, argv[1], &in_scalar)){
+    float in[1], out[1];
+    in[0] = (float) in_scalar;
+    if(unit->first) {
+      unit->rate = unit->rate/unit->period_size;
+      unit->period_size = 1;
+      (*unit->next)(unit, out, in, args, 1);
+      unit->first = 0;
+    }
+    (*unit->next)(unit, out, in, args, 1);
+    return(enif_make_double(env, (double) out[0]));
   }else{
     return enif_raise_exception(env,
                                 enif_make_string(env,
@@ -456,7 +471,7 @@ static void LPF_next_1(LHPF* unit, double * out, double in, double * args) {
   double b2 = unit->m_b2;
 
   if (freq != unit->m_freq) {
-    double pfreq = freq * radians_per_sample(unit->rate / unit->period_size) * 0.5;
+    double pfreq = freq * radians_per_sample(unit->rate) * 0.5;
 
     double C = 1. / tan(pfreq);
     double C2 = C * C;
@@ -569,7 +584,7 @@ static void HPF_next_1(LHPF* unit, double * out, double in, double * args) {
   double b2 = unit->m_b2;
 
   if (freq != unit->m_freq) {
-    double pfreq = freq * radians_per_sample(unit->rate / unit->period_size) * 0.5;
+    double pfreq = freq * radians_per_sample(unit->rate) * 0.5;
 
     double C = tan(pfreq);
     double C2 = C * C;
@@ -694,7 +709,7 @@ static void BPF_next_1(LHPF* unit, double * out, double in, double * args) {
   double b2 = unit->m_b2;
 
   if (freq != unit->m_freq || bw != unit->m_bw) {
-    double pfreq = freq * radians_per_sample(unit->rate / unit->period_size);
+    double pfreq = freq * radians_per_sample(unit->rate);
     double pbw = bw * pfreq * 0.5;
 
     double C = 1. / tan(pbw);
@@ -816,7 +831,7 @@ static void BRF_next_1(LHPF* unit, double * out, double in, double * args) {
   double b2 = unit->m_b2;
 
   if (freq != unit->m_freq || bw != unit->m_bw) {
-    double pfreq = freq * radians_per_sample(unit->rate / unit->period_size);
+    double pfreq = freq * radians_per_sample(unit->rate);
     double pbw = bw * pfreq * 0.5;
     double C = tan(pbw);
     double D = 2. * cos(pfreq);
@@ -933,9 +948,7 @@ static ERL_NIF_TERM lhpf_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     float * in = (float *) in_bin.data;
     float * out = (float *) enif_make_new_binary(env, in_bin.size, &out_term);
     if(unit->first) {
-      float * indummy = in;
-      float * outdummy = out;
-      (*unit->next)(unit, outdummy, indummy, args, inNumSamples);
+      (*unit->next)(unit, out, in, args, inNumSamples);
       unit->first = 0;
     }
     (*unit->next)(unit, out, in, args, inNumSamples);
@@ -944,6 +957,8 @@ static ERL_NIF_TERM lhpf_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     double out;
     if(unit->first) {
       (*unit->next_1)(unit, &out, in_scalar, args);
+      unit->rate = unit->rate / unit->period_size;
+      unit->period_size = 1;
       unit->first = 0;
     }
     (*unit->next_1)(unit, &out, in_scalar, args);
