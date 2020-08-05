@@ -110,11 +110,11 @@ defmodule SC.Filter do
 
     def stream(m = %__MODULE__{lagTimeU: lagtime_u}, enum) when is_number(lagtime_u) do
       ls = Stream.unfold(lagtime_u * 1.0, fn x -> {x,x} end)
-      stream(%{m | :lagTime => ls}, enum)
+      stream(%{m | :lagTimeU => ls}, enum)
     end
     def stream(m = %__MODULE__{lagTimeD: lagtime_d}, enum) when is_number(lagtime_d) do
       ls = Stream.unfold(lagtime_d * 1.0, fn x -> {x,x} end)
-      stream(%{m | :lagTime => ls}, enum)
+      stream(%{m | :lagTimeD => ls}, enum)
     end
     def stream(%__MODULE__{ref: ref, lagTimeU: lagtime_u, lagTimeD: lagtime_d}, enum) do
       Stream.zip([enum, lagtime_u, lagtime_d])
