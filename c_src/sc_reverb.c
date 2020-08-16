@@ -1549,7 +1549,6 @@ static ERL_NIF_TERM reverb_ctor(ErlNifEnv* env, int argc, const ERL_NIF_TERM arg
 static ERL_NIF_TERM reverb_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
   Reverb * rev;
-  ErlNifBinary in_bin;
   double args[4];
 
   if (!enif_get_resource(env, argv[0],
@@ -1580,27 +1579,46 @@ static ERL_NIF_TERM reverb_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM arg
                                                  ERL_NIF_LATIN1));
   }
 
-
-  if(enif_inspect_binary(env, argv[1], &in_bin)){
-    ERL_NIF_TERM out_term;
+  unsigned len;
+  if(enif_get_list_length(env, argv[1], &len)
+     && len < 3) {
+    ERL_NIF_TERM out_term[2];
+    ERL_NIF_TERM list, head, tail;
     float * out_array[2];
     float * in_array[2];
-    int inNumSamples = in_bin.size / sizeof(float);
-    float * in = (float *) in_bin.data;
-    float * out = (float *) enif_make_new_binary(env, in_bin.size, &out_term);
-    out_array[0] = out;
-    in_array[0] = in;
+    ErlNifBinary in_bin;
+    int inNumSamples = 0;
+    list = argv[1];
+    unsigned i = 0;
+    while (enif_get_list_cell(env, list, &head, &tail)){
+      if(enif_inspect_binary(env, head, &in_bin)){
+        inNumSamples = in_bin.size / sizeof(float);
+        in_array[i] = (float *) in_bin.data;
+        out_array[i] = (float *) enif_make_new_binary(env, in_bin.size, &out_term[i]);
+        list = tail;
+        i++;
+      } else {
+        return enif_raise_exception(env,
+                                    enif_make_string(env,
+                                                     "Input stream not a binary",
+                                                     ERL_NIF_LATIN1));
+      }
+    }
     if(rev->first) {
       (*rev->first)(rev, args);
       (*rev->next)(rev, out_array, in_array, args, 1);
       rev->first = NULL;
     }
     (*rev->next)(rev, out_array, in_array, args, inNumSamples);
-    return out_term;
+    if (len == 1){
+      return out_term[0];
+    } else {
+      return enif_make_list_from_array(env, out_term, len);
+    }
   }else{
     return enif_raise_exception(env,
                                 enif_make_string(env,
-                                                 "Input stream not a binary",
+                                                 "Input stream not a list",
                                                  ERL_NIF_LATIN1));
   }
 }

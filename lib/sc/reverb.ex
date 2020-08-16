@@ -31,8 +31,18 @@ defmodule SC.Reverb do
                   mix: mix, room: room, damp: damp}
     end
 
+    def new2(mix \\ 0.33, room \\ 0.5, damp \\ 0.5) do
+      %SC.Ctx{rate: rate, period_size: period_size} = SC.Ctx.get()
+      %__MODULE__{ref: SC.Reverb.reverb_ctor(rate, period_size, :freeverb2),
+                  mix: mix, room: room, damp: damp}
+    end
+
     def ns(enum, mix \\ 0.33, room \\ 0.5, damp \\ 0.5) do
       stream(new(mix, room, damp), enum)
+    end
+
+    def ns2(enum, mix \\ 0.33, room \\ 0.5, damp \\ 0.5) do
+      stream(new2(mix, room, damp), enum)
     end
 
     def next(%__MODULE__{ref: ref, mix: mix, room: room, damp: damp}, frames) do
@@ -53,8 +63,11 @@ defmodule SC.Reverb do
     end
     def stream(%__MODULE__{ref: ref, mix: mix, room: room, damp: damp}, enum) do
       Stream.zip([enum, mix, room, damp])
-      |> Stream.map(fn {frames, mixf, roomf, dampf} ->
-        SC.Reverb.reverb_next(ref, frames, mixf, roomf, dampf)
+      |> Stream.map(fn
+        {frames, mixf, roomf, dampf} when is_list(frames) ->
+          SC.Reverb.reverb_next(ref, frames, mixf, roomf, dampf)
+        {frames, mixf, roomf, dampf} ->
+          SC.Reverb.reverb_next(ref, [frames], mixf, roomf, dampf)
       end)
     end
   end
