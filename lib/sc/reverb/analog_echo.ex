@@ -2,11 +2,9 @@ defmodule SC.Reverb.AnalogEcho do
   @behaviour SC.Plugin
 
   @moduledoc """
-  # Analog Echo
-
   ### Analog Echo plugin
 
-  The SC.AnalogEcho module and sc_analog_echo.c file combined are translated from the SC [AnalogEcho](https://github.com/supercollider/example-plugins/blob/master/03-AnalogEcho/AnalogEcho.cpp) example as a comparison.
+  The SC.Reverb.AnalogEcho module and sc_analog_echo.c file combined are translated from the SC [AnalogEcho](https://github.com/supercollider/example-plugins/blob/master/03-AnalogEcho/AnalogEcho.cpp) example as a comparison.
 
   """
 

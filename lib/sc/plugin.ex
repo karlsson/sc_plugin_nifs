@@ -1,8 +1,6 @@
 defmodule SC.Plugin do
 
   @moduledoc """
-  # SuperCollider Plugins
-
   ### SC.Plugin behaviour
 
   SC plugins uses NIFs for generating and transforming the frames in a similar way as Supercollider (SC) uses UGens.
